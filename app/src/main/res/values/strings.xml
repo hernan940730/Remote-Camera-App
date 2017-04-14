@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">RemotePhoto</string>
-    <string name="button_camera">Take pic!</string>
-    <string name="image_cd_camera">This is a generic content description</string>
+    <string name="app_name">Remote Camera App</string>
+    <string name="take_picture">Take pic!</string>
+    <string name="torch_mode">Torch Mode</string>
 </resources>

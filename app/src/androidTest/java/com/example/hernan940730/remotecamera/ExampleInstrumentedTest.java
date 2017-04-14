@@ -1,4 +1,4 @@
-package com.example.hernan940730.remotephoto;
+package com.example.hernan940730.remotecamera;
 
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;

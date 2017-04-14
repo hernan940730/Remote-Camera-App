@@ -1,21 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="fill_parent"
-    android:layout_height="fill_parent"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:orientation="vertical"
-    tools:context="com.example.hernan940730.remotephoto.MainActivity">
+    android:id="@+id/main_view"
+    tools:context="com.example.hernan940730.remotecamera.RemoteCameraApi">
 
-    <Button
-        android:id="@+id/button_camera"
-        android:text="@string/button_camera"
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content" />
+    <TextureView
+        android:id="@+id/texture"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/list_item"
+        android:layout_alignParentTop="true"
+        />
+    <android.support.v7.view.menu.ListMenuItemView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/list_item"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true">
 
-    <ImageView
-        android:id="@+id/image_camera"
-        android:contentDescription="@string/image_cd_camera"
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content" />
+        <Button
+            android:id="@+id/btn_takepicture"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/take_picture"
+            />
+        <Button
+            android:id="@+id/btn_torchmode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/torch_mode"
+            />
+    </android.support.v7.view.menu.ListMenuItemView>
 
-</LinearLayout>
+
+</RelativeLayout>
