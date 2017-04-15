@@ -268,9 +268,6 @@ public class RemoteCameraApi extends AppCompatActivity {
                     super.onCaptureCompleted(session, request, result);
                     Toast.makeText(RemoteCameraApi.this, "Saved:" + file, Toast.LENGTH_SHORT).show();
                     createCameraPreview();
-                    if(flashState){
-                        turnOnTorchMode();
-                    }
                 }
             };
             cameraDevice.createCaptureSession(outputSurfaces, new CameraCaptureSession.StateCallback() {
@@ -344,6 +341,9 @@ public class RemoteCameraApi extends AppCompatActivity {
     protected void updatePreview() {
         if(null == cameraDevice) {
             showErrorMessage("Update preview error");
+        }
+        if(flashState){
+            turnOnTorchMode();
         }
         captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
         try {
@@ -426,9 +426,6 @@ public class RemoteCameraApi extends AppCompatActivity {
     protected void onStop() {
         super.onStop();
         closeCamera();
-        if(flashState) {
-            turnOffTorchMode();
-        }
     }
 
     private void showErrorMessage( String message ) {
