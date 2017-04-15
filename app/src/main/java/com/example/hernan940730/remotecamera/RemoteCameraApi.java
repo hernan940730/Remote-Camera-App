@@ -50,7 +50,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-@RequiresApi(api = Build.VERSION_CODES.M)
 public class RemoteCameraApi extends AppCompatActivity {
 
     private static final String TAG = "RemoteCameraApi";
@@ -110,14 +109,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                         .hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH);
 
                 if (!isFlashAvailable) {
-                    AlertDialog alert = new AlertDialog.Builder(RemoteCameraApi.this)
-                            .create();
-                    alert.setTitle("Error !!");
-                    alert.setMessage("Your device doesn't support flash light!");
-                    alert.setButton(DialogInterface.BUTTON_POSITIVE, "OK", new DialogInterface.OnClickListener() {
-                        public void onClick(DialogInterface dialog, int which) {}
-                    });
-                    alert.show();
+                    showErrorMessage("Your device doesn't support flash light!");
                     return;
                 }
                 if(flashState){
@@ -130,7 +122,6 @@ public class RemoteCameraApi extends AppCompatActivity {
 
             }
         });
-
     }
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
         @Override
@@ -154,7 +145,6 @@ public class RemoteCameraApi extends AppCompatActivity {
         @Override
         public void onOpened(CameraDevice camera) {
             //This is called when the camera is open
-            Log.e(TAG, "onOpened");
             cameraDevice = camera;
             createCameraPreview();
             if(flashState){
@@ -193,12 +183,13 @@ public class RemoteCameraApi extends AppCompatActivity {
             mBackgroundThread = null;
             mBackgroundHandler = null;
         } catch (InterruptedException e) {
+            showErrorMessage("App could not stop background thread");
             e.printStackTrace();
         }
     }
     protected void takePicture() {
         if(null == cameraDevice) {
-            Log.e(TAG, "cameraDevice is null");
+            showErrorMessage("CameraDevice is null");
             return;
         }
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -207,6 +198,9 @@ public class RemoteCameraApi extends AppCompatActivity {
             Size[] jpegSizes = null;
             if (characteristics != null) {
                 jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
+            }
+            else{
+                showErrorMessage("Camera Characteristics is null");
             }
             int width = 640;
             int height = 480;
@@ -227,7 +221,7 @@ public class RemoteCameraApi extends AppCompatActivity {
             // Orientation
             int rotation = getWindowManager().getDefaultDisplay().getRotation();
             captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
-            final File file = new File(Environment.getExternalStorageDirectory()+"/pic.jpg");
+            final File file = new File(Environment.getExternalStorageDirectory() + "/pic.jpg");
             ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
@@ -240,11 +234,16 @@ public class RemoteCameraApi extends AppCompatActivity {
                         save(bytes);
                     } catch (FileNotFoundException e) {
                         e.printStackTrace();
+                        showErrorMessage("File or directory not found");
                     } catch (IOException e) {
                         e.printStackTrace();
+                        showErrorMessage("App couldn't save the image");
                     } finally {
                         if (image != null) {
                             image.close();
+                        }
+                        else {
+                            showErrorMessage("Image is null");
                         }
                     }
                 }
@@ -256,6 +255,8 @@ public class RemoteCameraApi extends AppCompatActivity {
                     } finally {
                         if (null != output) {
                             output.close();
+                        } else {
+                            showErrorMessage("OutputStream is null");
                         }
                     }
                 }
@@ -278,6 +279,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                     try {
                         session.capture(captureBuilder.build(), captureListener, mBackgroundHandler);
                     } catch (CameraAccessException e) {
+                        showErrorMessage("(1) App could not access to camera");
                         e.printStackTrace();
                     }
                 }
@@ -286,6 +288,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                 }
             }, mBackgroundHandler);
         } catch (CameraAccessException e) {
+            showErrorMessage("(2) App could not access to camera");
             e.printStackTrace();
         }
     }
@@ -302,6 +305,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                 public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
                     //The camera is already closed
                     if (null == cameraDevice) {
+                        showErrorMessage("(2) CameraDevice is null");
                         return;
                     }
                     // When the session is ready, we start displaying the preview.
@@ -314,12 +318,12 @@ public class RemoteCameraApi extends AppCompatActivity {
                 }
             }, null);
         } catch (CameraAccessException e) {
+            showErrorMessage("(3) App could not access to camera");
             e.printStackTrace();
         }
     }
     private void openCamera() {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-        Log.e(TAG, "is camera open");
         try {
             cameraId = manager.getCameraIdList()[0];
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
@@ -333,18 +337,19 @@ public class RemoteCameraApi extends AppCompatActivity {
             }
             manager.openCamera(cameraId, stateCallback, null);
         } catch (CameraAccessException e) {
+            showErrorMessage("(4) App could not access to camera");
             e.printStackTrace();
         }
-        Log.e(TAG, "openCamera X");
     }
     protected void updatePreview() {
         if(null == cameraDevice) {
-            Log.e(TAG, "updatePreview error, return");
+            showErrorMessage("Update preview error");
         }
         captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
         try {
             cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, mBackgroundHandler);
         } catch (CameraAccessException e) {
+            showErrorMessage("(5) App could not access to camera");
             e.printStackTrace();
         }
     }
@@ -364,6 +369,7 @@ public class RemoteCameraApi extends AppCompatActivity {
             captureRequestBuilder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH);
             cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
         } catch (Exception e) {
+            showErrorMessage("App could not turn on flash");
             e.printStackTrace();
         }
     }
@@ -373,27 +379,9 @@ public class RemoteCameraApi extends AppCompatActivity {
             captureRequestBuilder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF);
             cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
         } catch (Exception e) {
+            showErrorMessage("App could not turn off flash");
             e.printStackTrace();
         }
-    }
-
-    @Override
-    public void onConfigurationChanged(Configuration newConfiguration) {
-        super.onConfigurationChanged(newConfiguration);
-        final RelativeLayout view = (RelativeLayout) findViewById(R.id.main_view);
-
-        ViewTreeObserver observer = view.getViewTreeObserver();
-        observer.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-
-            @Override
-            public void onGlobalLayout() {
-                Log.e(TAG,
-                        String.format("new width=%d; new height=%d", view.getWidth(),
-                                view.getHeight()));
-                view.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-                //textureView.setLayoutParams(new TextureView.LayoutParams(100,100));
-            }
-        });
     }
 
     @Override
@@ -415,7 +403,6 @@ public class RemoteCameraApi extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        Log.e(TAG, "onResume");
         startBackgroundThread();
 
         if (textureView.isAvailable()) {
@@ -427,7 +414,6 @@ public class RemoteCameraApi extends AppCompatActivity {
     }
     @Override
     protected void onPause() {
-        Log.e(TAG, "onPause");
         //closeCamera();
         stopBackgroundThread();
         super.onPause();
@@ -439,9 +425,22 @@ public class RemoteCameraApi extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        closeCamera();
         if(flashState) {
             turnOffTorchMode();
         }
+    }
+
+    private void showErrorMessage( String message ) {
+        AlertDialog alert = new AlertDialog.Builder(RemoteCameraApi.this)
+                .create();
+        alert.setTitle("Error!!!");
+        alert.setMessage(message);
+        alert.setButton(DialogInterface.BUTTON_POSITIVE, "OK", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {}
+        });
+        alert.show();
     }
 
 }
