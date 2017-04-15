@@ -68,15 +68,10 @@ public class RemoteCameraApi extends AppCompatActivity {
     private String cameraId;
     protected CameraDevice cameraDevice;
     protected CameraCaptureSession cameraCaptureSessions;
-    protected CaptureRequest captureRequest;
     protected CaptureRequest.Builder captureRequestBuilder;
     private Size imageDimension;
     private ImageReader imageReader;
-    private File file;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
-    private boolean mFlashSupported;
-    private Handler mBackgroundHandler;
-    private HandlerThread mBackgroundThread;
 
     private boolean flashState;
 
@@ -163,30 +158,6 @@ public class RemoteCameraApi extends AppCompatActivity {
             cameraDevice = null;
         }
     };
-    final CameraCaptureSession.CaptureCallback captureCallbackListener = new CameraCaptureSession.CaptureCallback() {
-        @Override
-        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
-            super.onCaptureCompleted(session, request, result);
-            Toast.makeText(RemoteCameraApi.this, "Saved:" + file, Toast.LENGTH_SHORT).show();
-            createCameraPreview();
-        }
-    };
-    protected void startBackgroundThread() {
-        mBackgroundThread = new HandlerThread("Camera Background");
-        mBackgroundThread.start();
-        mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
-    }
-    protected void stopBackgroundThread() {
-        mBackgroundThread.quitSafely();
-        try {
-            mBackgroundThread.join();
-            mBackgroundThread = null;
-            mBackgroundHandler = null;
-        } catch (InterruptedException e) {
-            showErrorMessage("App could not stop background thread");
-            e.printStackTrace();
-        }
-    }
     protected void takePicture() {
         if(null == cameraDevice) {
             showErrorMessage("CameraDevice is null");
@@ -261,7 +232,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                     }
                 }
             };
-            reader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
+            reader.setOnImageAvailableListener(readerListener, null);
             final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
                 @Override
                 public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
@@ -274,7 +245,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                 @Override
                 public void onConfigured(CameraCaptureSession session) {
                     try {
-                        session.capture(captureBuilder.build(), captureListener, mBackgroundHandler);
+                        session.capture(captureBuilder.build(), captureListener, null);
                     } catch (CameraAccessException e) {
                         showErrorMessage("(1) App could not access to camera");
                         e.printStackTrace();
@@ -283,7 +254,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                 @Override
                 public void onConfigureFailed(CameraCaptureSession session) {
                 }
-            }, mBackgroundHandler);
+            }, null);
         } catch (CameraAccessException e) {
             showErrorMessage("(2) App could not access to camera");
             e.printStackTrace();
@@ -307,6 +278,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                     }
                     // When the session is ready, we start displaying the preview.
                     cameraCaptureSessions = cameraCaptureSession;
+
                     updatePreview();
                 }
                 @Override
@@ -347,7 +319,7 @@ public class RemoteCameraApi extends AppCompatActivity {
         }
         captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
         try {
-            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, mBackgroundHandler);
+            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
         } catch (CameraAccessException e) {
             showErrorMessage("(5) App could not access to camera");
             e.printStackTrace();
@@ -403,8 +375,6 @@ public class RemoteCameraApi extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        startBackgroundThread();
-
         if (textureView.isAvailable()) {
             openCamera();
         } else {
@@ -415,7 +385,6 @@ public class RemoteCameraApi extends AppCompatActivity {
     @Override
     protected void onPause() {
         //closeCamera();
-        stopBackgroundThread();
         super.onPause();
         if(flashState) {
             turnOffTorchMode();
