@@ -4,8 +4,9 @@ import android.Manifest;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
-import android.content.res.Configuration;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
+import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -15,29 +16,20 @@ import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
-import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
-import android.os.Build;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.support.annotation.NonNull;
-import android.support.annotation.RequiresApi;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
-import android.view.ViewTreeObserver;
 import android.widget.Button;
-import android.widget.FrameLayout;
-import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import java.io.File;
@@ -47,17 +39,33 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class RemoteCameraApi extends AppCompatActivity {
 
     private static final String TAG = "RemoteCameraApi";
+    private static final String ACCESS_TO_CAMERA_ERROR = "App could not access to camera";
+
+    private static final int REQUEST_CAMERA_PERMISSION = 200;
+
     private Button takePictureButton;
     private Button torchButton;
     private TextureView textureView;
-    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
 
+    private boolean flashState;
+
+    private CameraManager cManager;
+    private CameraDevice[] cDevices;
+    private CaptureRequest.Builder previewRequestBuilder;
+    private CameraCaptureSession previewCaptureSession;
+
+    private Size imageDimension;
+
+    final File file = new File(Environment.getExternalStorageDirectory() + "/pic.jpg");
+
+    ImageReader reader;
+
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
     static {
         ORIENTATIONS.append(Surface.ROTATION_0, 90);
         ORIENTATIONS.append(Surface.ROTATION_90, 0);
@@ -65,15 +73,38 @@ public class RemoteCameraApi extends AppCompatActivity {
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
-    private String cameraId;
-    protected CameraDevice cameraDevice;
-    protected CameraCaptureSession cameraCaptureSessions;
-    protected CaptureRequest.Builder captureRequestBuilder;
-    private Size imageDimension;
-    private ImageReader imageReader;
-    private static final int REQUEST_CAMERA_PERMISSION = 200;
+    private CameraCaptureSession.StateCallback cSessionStateCallback = new CameraCaptureSession.StateCallback() {
+        @Override
+        public void onConfigured(@NonNull CameraCaptureSession session) {
+            //Toast.makeText(RemoteCameraApi.this, "New Capture Session", Toast.LENGTH_SHORT).show();
+            previewCaptureSession = session;
+            updateCameraPreview(session);
+        }
 
-    private boolean flashState;
+        @Override
+        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+            showErrorMessage("Session Error", "Camera Capture Session could not be configured");
+        }
+    };
+
+    private CameraDevice.StateCallback cStateCallback = new CameraDevice.StateCallback() {
+
+        @Override
+        public void onOpened(@NonNull CameraDevice camera) {
+            cDevices[0] = camera;
+            createCameraPreview(camera);
+        }
+
+        @Override
+        public void onDisconnected(@NonNull CameraDevice camera) {
+            showErrorMessage("Camera Error", "Camera is disconnected or was not found");
+        }
+
+        @Override
+        public void onError(@NonNull CameraDevice camera, int error) {
+            showErrorMessage("Camera Error", "Camera could not be opened");
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,7 +113,28 @@ public class RemoteCameraApi extends AppCompatActivity {
 
         textureView = (TextureView) findViewById(R.id.texture);
         assert textureView != null;
-        textureView.setSurfaceTextureListener(textureListener);
+        textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            @Override
+            public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+                createCamera();
+            }
+
+            @Override
+            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+
+            }
+
+            @Override
+            public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+                closeCamera();
+                return false;
+            }
+
+            @Override
+            public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+
+            }
+        });
 
         takePictureButton = (Button) findViewById(R.id.btn_takepicture);
         assert takePictureButton != null;
@@ -97,103 +149,173 @@ public class RemoteCameraApi extends AppCompatActivity {
         torchButton = (Button) findViewById(R.id.btn_torchmode);
         assert torchButton != null;
         torchButton.setOnClickListener(new View.OnClickListener() {
-            @RequiresApi(api = Build.VERSION_CODES.M)
             @Override
             public void onClick(View v) {
                 Boolean isFlashAvailable = getApplicationContext().getPackageManager()
                         .hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH);
 
                 if (!isFlashAvailable) {
-                    showErrorMessage("Your device doesn't support flash light!");
+                    showErrorMessage("Error!!!", "Your device doesn't support flash light!");
                     return;
                 }
-                if(flashState){
-                    turnOffTorchMode();
+                if (flashState) {
+                    turnOffTorchMode(previewCaptureSession, previewRequestBuilder);
+                } else {
+                    turnOnTorchMode(previewCaptureSession, previewRequestBuilder);
                 }
-                else{
-                    turnOnTorchMode();
-                }
-                flashState = ! flashState;
-
+                flashState = !flashState;
             }
         });
+
+        //Toast.makeText(this, "App on created", Toast.LENGTH_SHORT).show();
     }
-    TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
-        @Override
-        public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-            //open your camera here
-            openCamera();
-        }
-        @Override
-        public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-            // Transform you image captured size according to the surface width and height
-        }
-        @Override
-        public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-            return false;
-        }
-        @Override
-        public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-        }
-    };
-    private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
-        @Override
-        public void onOpened(CameraDevice camera) {
-            //This is called when the camera is open
-            cameraDevice = camera;
-            createCameraPreview();
-            if(flashState){
-                turnOnTorchMode();
-            }
-        }
 
-        @Override
-        public void onDisconnected(CameraDevice camera) {
-            cameraDevice.close();
-        }
-
-        @Override
-        public void onError(CameraDevice camera, int error) {
-            cameraDevice.close();
-            cameraDevice = null;
-        }
-    };
-    protected void takePicture() {
-        if(null == cameraDevice) {
-            showErrorMessage("CameraDevice is null");
+    private void takePicture() {
+        if (cManager == null) {
+            showErrorMessage("Take Picture Error", "Camera Manager is null");
             return;
         }
-        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        if (cDevices == null) {
+            showErrorMessage("Take Picture Error", "Camera Device is null");
+            return;
+        }
+        if(previewRequestBuilder == null) {
+            showErrorMessage("Take Picture Error", "Preview Request Builder is null");
+            return;
+        }
+        if(previewCaptureSession == null){
+            showErrorMessage("Take Picture Error", "Camera Capture Session is null");
+            return;
+        }
         try {
-            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraDevice.getId());
+            final CaptureRequest.Builder captureRequestBuilder = cDevices[0].createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureRequestBuilder.addTarget(reader.getSurface());
+            captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
+
+            if(flashState) {
+                turnOnTorchMode(previewCaptureSession, captureRequestBuilder);
+            }
+
+            previewCaptureSession.capture(captureRequestBuilder.build(), new CameraCaptureSession.CaptureCallback() {
+                @Override
+                public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
+                    super.onCaptureCompleted(session, request, result);
+                    Toast.makeText(RemoteCameraApi.this, "Saved:" + file, Toast.LENGTH_SHORT).show();
+                }
+            }, null);
+
+        } catch (CameraAccessException e) {
+            showErrorMessage("Take Picture Error", ACCESS_TO_CAMERA_ERROR);
+            e.printStackTrace();
+        }
+    }
+
+    private void createCamera() {
+        cManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+
+        try {
+            String cIds[] = cManager.getCameraIdList();
+            cDevices = new CameraDevice[cIds.length];
+
+            imageDimension = cManager.getCameraCharacteristics(cIds[0]).get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                    .getOutputSizes(SurfaceTexture.class)[0];
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[] {
+                        Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE
+                }, REQUEST_CAMERA_PERMISSION);
+                return;
+            }
+
+            cManager.openCamera(cIds[0], cStateCallback, null);
+
+        } catch (CameraAccessException e) {
+            showErrorMessage("Create Camera Error", ACCESS_TO_CAMERA_ERROR);
+            e.printStackTrace();
+        }
+    }
+
+    private void updateCamera() {
+
+    }
+
+    private void closeCamera() {
+
+        if(previewCaptureSession != null) {
+            previewCaptureSession.close();
+        }
+
+        if(cDevices[0] != null) {
+            cDevices[0].close();
+        }
+
+    }
+
+    private void turnOnTorchMode(CameraCaptureSession session, CaptureRequest.Builder builder) {
+        try {
+            builder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH);
+            session.setRepeatingRequest(previewRequestBuilder.build(), null, null);
+        } catch (Exception e) {
+            showErrorMessage("Turn on flash Error", "App could not turn on flash");
+            e.printStackTrace();
+        }
+    }
+
+    private void turnOffTorchMode(CameraCaptureSession session, CaptureRequest.Builder builder){
+        try {
+            builder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF);
+            session.setRepeatingRequest(previewRequestBuilder.build(), null, null);
+        } catch (Exception e) {
+            showErrorMessage("Turn off flash Error", "App could not turn off flash");
+            e.printStackTrace();
+        }
+    }
+
+    private void createCameraPreview( CameraDevice camera ) {
+
+        if(cManager == null) {
+            showErrorMessage("Create Capture Session Error", "Camera Manager is null");
+            return;
+        }
+
+        try {
+            SurfaceTexture texture = textureView.getSurfaceTexture();
+            assert texture != null;
+            if(imageDimension == null) {
+                showErrorMessage("Create Camera Preview Error", "Image dimension is null");
+                return;
+            }
+            texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
+            Surface surface = new Surface(texture);
+            previewRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+
+            previewRequestBuilder.addTarget(surface);
+
+            CameraCharacteristics cCharacteristics = cManager.getCameraCharacteristics(cDevices[0].getId());
+
             Size[] jpegSizes = null;
-            if (characteristics != null) {
-                jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
+
+            if (cCharacteristics != null) {
+                if (cCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) != null) {
+                    jpegSizes = cCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                            .getOutputSizes(ImageFormat.JPEG);
+                }
             }
-            else{
-                showErrorMessage("Camera Characteristics is null");
-            }
+
             int width = 640;
             int height = 480;
+
             if (jpegSizes != null && 0 < jpegSizes.length) {
                 width = jpegSizes[0].getWidth();
                 height = jpegSizes[0].getHeight();
             }
-            ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
-            List<Surface> outputSurfaces = new ArrayList<>(2);
-            outputSurfaces.add(reader.getSurface());
-            outputSurfaces.add(new Surface(textureView.getSurfaceTexture()));
-            final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            captureBuilder.addTarget(reader.getSurface());
-            captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
-            if(flashState) {
-                captureBuilder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH);
-            }
-            // Orientation
-            int rotation = getWindowManager().getDefaultDisplay().getRotation();
-            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
-            final File file = new File(Environment.getExternalStorageDirectory() + "/pic.jpg");
-            ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
+
+            reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
+
+            reader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
                     Image image = null;
@@ -204,17 +326,14 @@ public class RemoteCameraApi extends AppCompatActivity {
                         buffer.get(bytes);
                         save(bytes);
                     } catch (FileNotFoundException e) {
+                        showErrorMessage("Image Reader Listener Error", "File not found");
                         e.printStackTrace();
-                        showErrorMessage("File or directory not found");
                     } catch (IOException e) {
+                        showErrorMessage("Image Reader Listener Error", "IO Exception");
                         e.printStackTrace();
-                        showErrorMessage("App couldn't save the image");
                     } finally {
                         if (image != null) {
                             image.close();
-                        }
-                        else {
-                            showErrorMessage("Image is null");
                         }
                     }
                 }
@@ -226,181 +345,90 @@ public class RemoteCameraApi extends AppCompatActivity {
                     } finally {
                         if (null != output) {
                             output.close();
-                        } else {
-                            showErrorMessage("OutputStream is null");
                         }
                     }
                 }
-            };
-            reader.setOnImageAvailableListener(readerListener, null);
-            final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
-                @Override
-                public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
-                    super.onCaptureCompleted(session, request, result);
-                    Toast.makeText(RemoteCameraApi.this, "Saved:" + file, Toast.LENGTH_SHORT).show();
-                    createCameraPreview();
-                }
-            };
-            cameraDevice.createCaptureSession(outputSurfaces, new CameraCaptureSession.StateCallback() {
-                @Override
-                public void onConfigured(CameraCaptureSession session) {
-                    try {
-                        session.capture(captureBuilder.build(), captureListener, null);
-                    } catch (CameraAccessException e) {
-                        showErrorMessage("(1) App could not access to camera");
-                        e.printStackTrace();
-                    }
-                }
-                @Override
-                public void onConfigureFailed(CameraCaptureSession session) {
-                }
             }, null);
-        } catch (CameraAccessException e) {
-            showErrorMessage("(2) App could not access to camera");
-            e.printStackTrace();
-        }
-    }
-    protected void createCameraPreview() {
-        try {
-            SurfaceTexture texture = textureView.getSurfaceTexture();
-            assert texture != null;
-            texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
-            Surface surface = new Surface(texture);
-            captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            captureRequestBuilder.addTarget(surface);
-            cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback(){
-                @Override
-                public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
-                    //The camera is already closed
-                    if (null == cameraDevice) {
-                        showErrorMessage("(2) CameraDevice is null");
-                        return;
-                    }
-                    // When the session is ready, we start displaying the preview.
-                    cameraCaptureSessions = cameraCaptureSession;
 
-                    updatePreview();
-                }
-                @Override
-                public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
-                    Toast.makeText(RemoteCameraApi.this, "Configuration change", Toast.LENGTH_SHORT).show();
-                }
-            }, null);
+
+            List<Surface> surfaces = new ArrayList<>();
+            surfaces.add(surface);
+            surfaces.add(reader.getSurface());
+
+            camera.createCaptureSession( surfaces, cSessionStateCallback, null);
+
+
         } catch (CameraAccessException e) {
-            showErrorMessage("(3) App could not access to camera");
+            showErrorMessage("Create Camera Preview Error", ACCESS_TO_CAMERA_ERROR);
             e.printStackTrace();
         }
-    }
-    private void openCamera() {
-        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-        try {
-            cameraId = manager.getCameraIdList()[0];
-            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            assert map != null;
-            imageDimension = map.getOutputSizes(SurfaceTexture.class)[0];
-            // Add permission for camera and let user grant the permission
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(RemoteCameraApi.this, new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_CAMERA_PERMISSION);
-                return;
-            }
-            manager.openCamera(cameraId, stateCallback, null);
-        } catch (CameraAccessException e) {
-            showErrorMessage("(4) App could not access to camera");
-            e.printStackTrace();
-        }
-    }
-    protected void updatePreview() {
-        if(null == cameraDevice) {
-            showErrorMessage("Update preview error");
-        }
-        if(flashState){
-            turnOnTorchMode();
-        }
-        captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
-        try {
-            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
-        } catch (CameraAccessException e) {
-            showErrorMessage("(5) App could not access to camera");
-            e.printStackTrace();
-        }
-    }
-    private void closeCamera() {
-        if (null != cameraDevice) {
-            cameraDevice.close();
-            cameraDevice = null;
-        }
-        if (null != imageReader) {
-            imageReader.close();
-            imageReader = null;
-        }
+
     }
 
-    private void turnOnTorchMode() {
-        try {
-            captureRequestBuilder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH);
-            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
-        } catch (Exception e) {
-            showErrorMessage("App could not turn on flash");
-            e.printStackTrace();
+    private void updateCameraPreview(CameraCaptureSession session){
+        if(previewRequestBuilder == null) {
+            showErrorMessage("Update Preview Error", "Preview Request Builder is null");
+            return;
         }
-    }
 
-    private void turnOffTorchMode(){
+        previewRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+
         try {
-            captureRequestBuilder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF);
-            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
-        } catch (Exception e) {
-            showErrorMessage("App could not turn off flash");
+            session.setRepeatingRequest(previewRequestBuilder.build(), null, null);
+
+        } catch (CameraAccessException e) {
+            showErrorMessage("Update Preview Error", ACCESS_TO_CAMERA_ERROR);
             e.printStackTrace();
         }
+
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            finish();
             if (grantResults[0] == PackageManager.PERMISSION_DENIED) {
                 // close the app
-                Toast.makeText(RemoteCameraApi.this, "Sorry!!!, you can't use this app without granting permission", Toast.LENGTH_LONG).show();
-                finish();
+                Toast.makeText(this, "Sorry!!!, you can't use this app without granting permission", Toast.LENGTH_LONG).show();
+            }
+            else{
+                startActivity(getIntent());
             }
         }
     }
 
     @Override
     protected void onStart() {
+        //Toast.makeText(this, "App Started", Toast.LENGTH_SHORT).show();
         super.onStart();
     }
 
     @Override
     protected void onResume() {
+        //Toast.makeText(this, "App Resumed", Toast.LENGTH_SHORT).show();
         super.onResume();
-        if (textureView.isAvailable()) {
-            openCamera();
-        } else {
-            textureView.setSurfaceTextureListener(textureListener);
-        }
-
     }
     @Override
     protected void onPause() {
-        //closeCamera();
+        //Toast.makeText(this, "App Paused", Toast.LENGTH_SHORT).show();
         super.onPause();
         if(flashState) {
-            turnOffTorchMode();
+            turnOffTorchMode(previewCaptureSession, previewRequestBuilder);
+            flashState = false;
         }
     }
 
     @Override
     protected void onStop() {
+        //Toast.makeText(this, "App Stopped", Toast.LENGTH_SHORT).show();
         super.onStop();
         closeCamera();
     }
 
-    private void showErrorMessage( String message ) {
+    private void showErrorMessage( String title, String message ) {
         AlertDialog alert = new AlertDialog.Builder(RemoteCameraApi.this)
                 .create();
-        alert.setTitle("Error!!!");
+        alert.setTitle(title);
         alert.setMessage(message);
         alert.setButton(DialogInterface.BUTTON_POSITIVE, "OK", new DialogInterface.OnClickListener() {
             @Override
