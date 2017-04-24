@@ -20,6 +20,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
+import android.support.v7.app.ActionBar;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.text.InputType;
@@ -33,6 +34,7 @@ import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -84,12 +86,18 @@ public class RemoteCameraApi extends AppCompatActivity {
     private SocketClient connection;
 
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+    private static final SparseIntArray ORIENTATIONS2 = new SparseIntArray();
 
     static {
         ORIENTATIONS.append(Surface.ROTATION_0, 90);
         ORIENTATIONS.append(Surface.ROTATION_90, 0);
         ORIENTATIONS.append(Surface.ROTATION_180, 270);
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
+
+        ORIENTATIONS2.append(Surface.ROTATION_0, 0);
+        ORIENTATIONS2.append(Surface.ROTATION_90, 270);
+        ORIENTATIONS2.append(Surface.ROTATION_180, 0);
+        ORIENTATIONS2.append(Surface.ROTATION_270, 90);
     }
 
     private CameraCaptureSession.StateCallback cSessionStateCallback = new CameraCaptureSession.StateCallback() {
@@ -132,6 +140,10 @@ public class RemoteCameraApi extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         textureView = (TextureView) findViewById(R.id.texture);
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        
+        textureView.setRotation(ORIENTATIONS2.get(rotation));
+
         assert textureView != null;
         textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
@@ -198,7 +210,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                     (serverIP = savedInstanceState.getString("SERVER_IP")) != null &&
                     (serverPort = savedInstanceState.getString("SERVER_PORT")) != null ) {
                 connection = SocketClient.getInstance();
-                connection.initSocket(savedInstanceState.getString("SERVER_IP"), savedInstanceState.getString("SERVER_PORT"));
+                connection.initSocket(serverIP, serverPort);
                 socket = connection.getSocket();
                 socket.on("picture-requested", onPictureRequested);
                 socket.connect();
@@ -355,6 +367,8 @@ public class RemoteCameraApi extends AppCompatActivity {
             texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
             Surface surface = new Surface(texture);
             previewRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            previewRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
 
             previewRequestBuilder.addTarget(surface);
 

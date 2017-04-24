@@ -3,38 +3,34 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:id="@+id/main_view"
     tools:context="com.example.hernan940730.remotecamera.RemoteCameraApi">
 
     <TextureView
         android:id="@+id/texture"
-        android:layout_centerHorizontal="true"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_above="@+id/list_item"
+        android:layout_height="wrap_content"
+
         />
     <android.support.v7.view.menu.ListMenuItemView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:id="@+id/list_item"
-        android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true">
+        android:layout_alignParentRight="true"
+        android:orientation="vertical"
+        android:layout_centerVertical="true"
+        android:id="@+id/list_item">
 
         <Button
             android:id="@+id/btn_takepicture"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:layout_marginTop="16dp"
             android:text="@string/take_picture"
             />
         <Button
             android:id="@+id/btn_torchmode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:layout_marginTop="16dp"
             android:text="@string/torch_mode"
             />
     </android.support.v7.view.menu.ListMenuItemView>
