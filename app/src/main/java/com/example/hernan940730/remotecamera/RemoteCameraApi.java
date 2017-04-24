@@ -5,8 +5,6 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
-import android.graphics.Matrix;
-import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -18,12 +16,14 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageReader;
+import android.os.Bundle;
 import android.os.Environment;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
+import android.util.Base64;
+import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
 import android.view.Surface;
@@ -32,7 +32,11 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -40,6 +44,10 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+
+import io.socket.client.Socket;
+import io.socket.emitter.Emitter;
+
 
 public class RemoteCameraApi extends AppCompatActivity {
 
@@ -65,7 +73,12 @@ public class RemoteCameraApi extends AppCompatActivity {
 
     ImageReader reader;
 
+    //Socket to connect with server
+    private Socket socket;
+
+
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+
     static {
         ORIENTATIONS.append(Surface.ROTATION_0, 90);
         ORIENTATIONS.append(Surface.ROTATION_90, 0);
@@ -167,10 +180,61 @@ public class RemoteCameraApi extends AppCompatActivity {
             }
         });
 
+
+        //Connection
+        SocketClient connection = SocketClient.getInstance();
+        connection.initSocket();
+        socket = connection.getSocket();
+        socket.on("picture-requested", onPictureRequested);
+        socket.connect();
+
         //Toast.makeText(this, "App on created", Toast.LENGTH_SHORT).show();
     }
 
-    private void takePicture() {
+    /*
+        Answer to "picture-requested" message send by server
+     */
+    private Emitter.Listener onPictureRequested = new Emitter.Listener() {
+
+        @Override
+        public void call(final Object... args) {
+            RemoteCameraApi.this.runOnUiThread(
+                    new Runnable() {
+                        public void run() {
+                            //Data received by client
+                            JSONObject data = (JSONObject) args[0];
+                            //Data response to server (picture)
+                            JSONObject pars = new JSONObject();
+                            Log.d(TAG, "request received");
+
+                            try {
+                                Log.d(TAG, "request_id " + data.get("request_id"));
+
+                                //Call trigger function to take photo
+                                takePicture();
+
+                                //Send last photo taken
+                                FileInputStream fileInputStreamReader = new FileInputStream(file);
+                                byte[] bytes = new byte[(int) file.length()];
+                                fileInputStreamReader.read(bytes);
+                                pars.put("request_id", data.get("request_id"));
+                                pars.put("image", new String(Base64.encode(bytes, Base64.DEFAULT), "UTF-8"));
+                                socket.emit("picture-available", pars);
+
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            } catch (FileNotFoundException e) {
+                                e.printStackTrace();
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    });
+        }
+    };
+
+
+    public void takePicture() {
         if (cManager == null) {
             showErrorMessage("Take Picture Error", "Camera Manager is null");
             return;
@@ -179,11 +243,11 @@ public class RemoteCameraApi extends AppCompatActivity {
             showErrorMessage("Take Picture Error", "Camera Device is null");
             return;
         }
-        if(previewRequestBuilder == null) {
+        if (previewRequestBuilder == null) {
             showErrorMessage("Take Picture Error", "Preview Request Builder is null");
             return;
         }
-        if(previewCaptureSession == null){
+        if (previewCaptureSession == null) {
             showErrorMessage("Take Picture Error", "Camera Capture Session is null");
             return;
         }
@@ -195,7 +259,7 @@ public class RemoteCameraApi extends AppCompatActivity {
             int rotation = getWindowManager().getDefaultDisplay().getRotation();
             captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
 
-            if(flashState) {
+            if (flashState) {
                 turnOnTorchMode(previewCaptureSession, captureRequestBuilder);
             }
 
@@ -224,7 +288,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                     .getOutputSizes(SurfaceTexture.class)[0];
 
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[] {
+                ActivityCompat.requestPermissions(this, new String[]{
                         Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE
                 }, REQUEST_CAMERA_PERMISSION);
                 return;
@@ -244,11 +308,11 @@ public class RemoteCameraApi extends AppCompatActivity {
 
     private void closeCamera() {
 
-        if(previewCaptureSession != null) {
+        if (previewCaptureSession != null) {
             previewCaptureSession.close();
         }
 
-        if(cDevices[0] != null) {
+        if (cDevices[0] != null) {
             cDevices[0].close();
         }
 
@@ -264,7 +328,7 @@ public class RemoteCameraApi extends AppCompatActivity {
         }
     }
 
-    private void turnOffTorchMode(CameraCaptureSession session, CaptureRequest.Builder builder){
+    private void turnOffTorchMode(CameraCaptureSession session, CaptureRequest.Builder builder) {
         try {
             builder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF);
             session.setRepeatingRequest(previewRequestBuilder.build(), null, null);
@@ -274,9 +338,9 @@ public class RemoteCameraApi extends AppCompatActivity {
         }
     }
 
-    private void createCameraPreview( CameraDevice camera ) {
+    private void createCameraPreview(CameraDevice camera) {
 
-        if(cManager == null) {
+        if (cManager == null) {
             showErrorMessage("Create Capture Session Error", "Camera Manager is null");
             return;
         }
@@ -284,7 +348,7 @@ public class RemoteCameraApi extends AppCompatActivity {
         try {
             SurfaceTexture texture = textureView.getSurfaceTexture();
             assert texture != null;
-            if(imageDimension == null) {
+            if (imageDimension == null) {
                 showErrorMessage("Create Camera Preview Error", "Image dimension is null");
                 return;
             }
@@ -337,6 +401,7 @@ public class RemoteCameraApi extends AppCompatActivity {
                         }
                     }
                 }
+
                 private void save(byte[] bytes) throws IOException {
                     OutputStream output = null;
                     try {
@@ -355,7 +420,7 @@ public class RemoteCameraApi extends AppCompatActivity {
             surfaces.add(surface);
             surfaces.add(reader.getSurface());
 
-            camera.createCaptureSession( surfaces, cSessionStateCallback, null);
+            camera.createCaptureSession(surfaces, cSessionStateCallback, null);
 
 
         } catch (CameraAccessException e) {
@@ -365,8 +430,8 @@ public class RemoteCameraApi extends AppCompatActivity {
 
     }
 
-    private void updateCameraPreview(CameraCaptureSession session){
-        if(previewRequestBuilder == null) {
+    private void updateCameraPreview(CameraCaptureSession session) {
+        if (previewRequestBuilder == null) {
             showErrorMessage("Update Preview Error", "Preview Request Builder is null");
             return;
         }
@@ -390,8 +455,7 @@ public class RemoteCameraApi extends AppCompatActivity {
             if (grantResults[0] == PackageManager.PERMISSION_DENIED) {
                 // close the app
                 Toast.makeText(this, "Sorry!!!, you can't use this app without granting permission", Toast.LENGTH_LONG).show();
-            }
-            else{
+            } else {
                 startActivity(getIntent());
             }
         }
@@ -408,11 +472,12 @@ public class RemoteCameraApi extends AppCompatActivity {
         //Toast.makeText(this, "App Resumed", Toast.LENGTH_SHORT).show();
         super.onResume();
     }
+
     @Override
     protected void onPause() {
         //Toast.makeText(this, "App Paused", Toast.LENGTH_SHORT).show();
         super.onPause();
-        if(flashState) {
+        if (flashState) {
             turnOffTorchMode(previewCaptureSession, previewRequestBuilder);
             flashState = false;
         }
@@ -425,14 +490,15 @@ public class RemoteCameraApi extends AppCompatActivity {
         closeCamera();
     }
 
-    private void showErrorMessage( String title, String message ) {
+    private void showErrorMessage(String title, String message) {
         AlertDialog alert = new AlertDialog.Builder(RemoteCameraApi.this)
                 .create();
         alert.setTitle(title);
         alert.setMessage(message);
         alert.setButton(DialogInterface.BUTTON_POSITIVE, "OK", new DialogInterface.OnClickListener() {
             @Override
-            public void onClick(DialogInterface dialog, int which) {}
+            public void onClick(DialogInterface dialog, int which) {
+            }
         });
         alert.show();
     }
