@@ -15,7 +15,7 @@ public class SocketClient {
 
     // Connection variables
     private Socket socket;
-    private String SERVER_IP = "192.168.1.9";
+    private String SERVER_IP = "192.168.100.6";
     private String SERVER_PORT = "5000";
     private static final String LOG_TAG_SOCKET = "socket-io";
 
@@ -71,5 +71,12 @@ public class SocketClient {
 
     public static SocketClient getInstance() {
         return instance;
+    }
+
+    public String getIP(){
+        return SERVER_IP;
+    }
+    public String getPort(){
+        return SERVER_PORT;
     }
 }

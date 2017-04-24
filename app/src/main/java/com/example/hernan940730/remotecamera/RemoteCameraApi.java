@@ -22,6 +22,8 @@ import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
+import android.text.InputType;
+import android.text.method.DigitsKeyListener;
 import android.util.Base64;
 import android.util.Log;
 import android.util.Size;
@@ -30,6 +32,10 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONException;
@@ -75,7 +81,7 @@ public class RemoteCameraApi extends AppCompatActivity {
 
     //Socket to connect with server
     private Socket socket;
-
+    private SocketClient connection;
 
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
 
@@ -122,6 +128,7 @@ public class RemoteCameraApi extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         setContentView(R.layout.activity_main);
 
         textureView = (TextureView) findViewById(R.id.texture);
@@ -182,18 +189,36 @@ public class RemoteCameraApi extends AppCompatActivity {
 
 
         //Connection
-        SocketClient connection = SocketClient.getInstance();
-        connection.initSocket();
-        socket = connection.getSocket();
-        socket.on("picture-requested", onPictureRequested);
-        socket.connect();
 
+        if(socket == null) {
+
+            String serverIP;
+            String serverPort;
+            if ( savedInstanceState != null &&
+                    (serverIP = savedInstanceState.getString("SERVER_IP")) != null &&
+                    (serverPort = savedInstanceState.getString("SERVER_PORT")) != null ) {
+                connection = SocketClient.getInstance();
+                connection.initSocket(savedInstanceState.getString("SERVER_IP"), savedInstanceState.getString("SERVER_PORT"));
+                socket = connection.getSocket();
+                socket.on("picture-requested", onPictureRequested);
+                socket.connect();
+
+            }
+            else{
+                showSocketAlert();
+            }
+
+
+
+        }
         //Toast.makeText(this, "App on created", Toast.LENGTH_SHORT).show();
     }
 
     /*
         Answer to "picture-requested" message send by server
      */
+
+    private JSONObject data;
     private Emitter.Listener onPictureRequested = new Emitter.Listener() {
 
         @Override
@@ -201,33 +226,8 @@ public class RemoteCameraApi extends AppCompatActivity {
             RemoteCameraApi.this.runOnUiThread(
                     new Runnable() {
                         public void run() {
-                            //Data received by client
-                            JSONObject data = (JSONObject) args[0];
-                            //Data response to server (picture)
-                            JSONObject pars = new JSONObject();
-                            Log.d(TAG, "request received");
-
-                            try {
-                                Log.d(TAG, "request_id " + data.get("request_id"));
-
-                                //Call trigger function to take photo
-                                takePicture();
-
-                                //Send last photo taken
-                                FileInputStream fileInputStreamReader = new FileInputStream(file);
-                                byte[] bytes = new byte[(int) file.length()];
-                                fileInputStreamReader.read(bytes);
-                                pars.put("request_id", data.get("request_id"));
-                                pars.put("image", new String(Base64.encode(bytes, Base64.DEFAULT), "UTF-8"));
-                                socket.emit("picture-available", pars);
-
-                            } catch (JSONException e) {
-                                e.printStackTrace();
-                            } catch (FileNotFoundException e) {
-                                e.printStackTrace();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
+                            data = (JSONObject) args[0];
+                            takePicture();
                         }
                     });
         }
@@ -389,6 +389,18 @@ public class RemoteCameraApi extends AppCompatActivity {
                         byte[] bytes = new byte[buffer.capacity()];
                         buffer.get(bytes);
                         save(bytes);
+                        if(data != null) {
+                            JSONObject pars = new JSONObject();
+                            try {
+                                pars.put("request_id", data.get("request_id"));
+                                pars.put("image", new String(Base64.encode(bytes, Base64.DEFAULT), "UTF-8"));
+                                socket.emit("picture-available", pars);
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                        data = null;
+
                     } catch (FileNotFoundException e) {
                         showErrorMessage("Image Reader Listener Error", "File not found");
                         e.printStackTrace();
@@ -486,12 +498,24 @@ public class RemoteCameraApi extends AppCompatActivity {
     @Override
     protected void onStop() {
         //Toast.makeText(this, "App Stopped", Toast.LENGTH_SHORT).show();
+        if(socket != null) {
+            socket.close();
+        }
         super.onStop();
         closeCamera();
     }
 
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        if(connection != null) {
+            outState.putString("SERVER_IP", connection.getIP());
+            outState.putString("SERVER_PORT", connection.getPort());
+        }
+        super.onSaveInstanceState(outState);
+    }
+
     private void showErrorMessage(String title, String message) {
-        AlertDialog alert = new AlertDialog.Builder(RemoteCameraApi.this)
+        AlertDialog alert = new AlertDialog.Builder(this)
                 .create();
         alert.setTitle(title);
         alert.setMessage(message);
@@ -500,6 +524,43 @@ public class RemoteCameraApi extends AppCompatActivity {
             public void onClick(DialogInterface dialog, int which) {
             }
         });
+        alert.show();
+    }
+
+    private void showSocketAlert() {
+        AlertDialog.Builder alert = new AlertDialog.Builder(this);
+        alert.setTitle("Server Address");
+
+        final LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(LinearLayout.VERTICAL);
+
+        final TextView ipTitle = new TextView(this);
+        final TextView portTitle = new TextView(this);
+        ipTitle.setText("IP:");
+        portTitle.setText("PORT:");
+        final EditText serverIPText = new EditText(this);
+        serverIPText.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        serverIPText.setKeyListener(DigitsKeyListener.getInstance("0123456789."));
+        final EditText serverPortText = new EditText(this);
+        serverPortText.setInputType(InputType.TYPE_CLASS_NUMBER);
+
+        linearLayout.addView(ipTitle);
+        linearLayout.addView(serverIPText);
+        linearLayout.addView(portTitle);
+        linearLayout.addView(serverPortText);
+        alert.setView(linearLayout);
+
+        alert.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                connection = SocketClient.getInstance();
+                connection.initSocket(serverIPText.getText().toString(), serverPortText.getText().toString());
+                socket = connection.getSocket();
+                socket.on("picture-requested", onPictureRequested);
+                socket.connect();
+            }
+        });
+
         alert.show();
     }
 
