@@ -17,12 +17,14 @@ public class SocketClient {
     private Socket socket;
     private String serverIp;
     private String serverPort;
+    private String name;
 
     private static final String TAG = "socket-io";
 
-    public SocketClient(String serverIp, String serverPort) {
+    public SocketClient(String serverIp, String serverPort, String name) {
         this.serverIp = serverIp;
         this.serverPort = serverPort;
+        this.name = name;
 
         initSocket();
     }
@@ -45,7 +47,7 @@ public class SocketClient {
         public void call(Object... args) {
             JSONObject pars = new JSONObject();
             try {
-                pars.put("client_name", "Sample android client");
+                pars.put("client_name", name);
             } catch (JSONException e) {
                 e.printStackTrace();
             }
@@ -67,10 +69,10 @@ public class SocketClient {
         return socket;
     }
 
-
     public String getIP(){
         return serverIp;
     }
+
     public String getPort(){
         return serverPort;
     }

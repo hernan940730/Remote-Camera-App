@@ -137,10 +137,12 @@ public class RemoteCameraApi extends AppCompatActivity {
 
         String serverIP;
         String serverPort;
+        String name;
         if ( savedInstanceState != null &&
                 (serverIP = savedInstanceState.getString("SERVER_IP")) != null &&
-                (serverPort = savedInstanceState.getString("SERVER_PORT")) != null ) {
-            initializeSocketClient(serverIP, serverPort);
+                (serverPort = savedInstanceState.getString("SERVER_PORT")) != null &&
+                (name = savedInstanceState.getString("CLIENT_NAME")) != null) {
+            initializeSocketClient(serverIP, serverPort, name);
         } else {
             showSocketAlert();
         }
@@ -201,18 +203,24 @@ public class RemoteCameraApi extends AppCompatActivity {
 
         final TextView ipTitle = new TextView(this);
         final TextView portTitle = new TextView(this);
+        final TextView nameTitle = new TextView(this);
         ipTitle.setText("IP:");
         portTitle.setText("PORT:");
+        nameTitle.setText("Name:");
         final EditText serverIPText = new EditText(this);
         serverIPText.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         serverIPText.setKeyListener(DigitsKeyListener.getInstance("0123456789."));
         final EditText serverPortText = new EditText(this);
         serverPortText.setInputType(InputType.TYPE_CLASS_NUMBER);
+        final EditText nameText = new EditText(this);
+        nameText.setText("Sample Android");
 
         linearLayout.addView(ipTitle);
         linearLayout.addView(serverIPText);
         linearLayout.addView(portTitle);
         linearLayout.addView(serverPortText);
+        linearLayout.addView(nameTitle);
+        linearLayout.addView(nameText);
         alert.setView(linearLayout);
 
         alert.setPositiveButton("OK", new DialogInterface.OnClickListener() {
@@ -220,16 +228,17 @@ public class RemoteCameraApi extends AppCompatActivity {
             public void onClick(DialogInterface dialog, int which) {
                 String serverIp = serverIPText.getText().toString();
                 String port = serverPortText.getText().toString();
+                String name = nameText.getText().toString();
 
-                initializeSocketClient(serverIp, port);
+                initializeSocketClient(serverIp, port, name);
             }
         });
 
         alert.show();
     }
 
-    private void initializeSocketClient(String serverIp, String port) {
-        connection = new SocketClient(serverIp, port);
+    private void initializeSocketClient(String serverIp, String port, String name) {
+        connection = new SocketClient(serverIp, port, name);
         socket = connection.getSocket();
         socket.on("picture-requested", onPictureRequested);
         socket.connect();
