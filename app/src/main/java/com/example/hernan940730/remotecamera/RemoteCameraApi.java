@@ -54,12 +54,10 @@ public class RemoteCameraApi extends AppCompatActivity {
                     JSONObject pars = new JSONObject();
                     try {
                         pars.put("request_id", lastPictureRequest.get("request_id"));
-                        pars.put("image", new String(Base64.encode(data, Base64.DEFAULT), "UTF-8"));
+                        pars.put("image", data);
                         socket.emit("picture-available", pars);
                     } catch (JSONException e) {
                         Log.e(TAG, "JSONException while attempting to send image", e);
-                    } catch (UnsupportedEncodingException e) {
-                        Log.e(TAG, "UnsupportedEncodingException while attempting to send image", e);
                     }
                 }
                 lastPictureRequest = null;
