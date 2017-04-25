@@ -5,7 +5,6 @@ import android.util.Log;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.Serializable;
 import java.net.URISyntaxException;
 
 import io.socket.client.IO;
@@ -16,27 +15,25 @@ public class SocketClient {
 
     // Connection variables
     private Socket socket;
-    private String SERVER_IP = "192.168.100.6";
-    private String SERVER_PORT = "5000";
-    private static final String LOG_TAG_SOCKET = "socket-io";
+    private String serverIp;
+    private String serverPort;
 
-    private static SocketClient instance = new SocketClient();
+    private static final String TAG = "socket-io";
 
-    private SocketClient() { }
-
-    public void initSocket(String SERVER_IP, String SERVER_PORT) {
-        this.SERVER_IP = SERVER_IP;
-        this.SERVER_PORT = SERVER_PORT;
+    public SocketClient(String serverIp, String serverPort) {
+        this.serverIp = serverIp;
+        this.serverPort = serverPort;
 
         initSocket();
     }
 
-    public void initSocket() {
+    private void initSocket() {
+        String url = "http://" + serverIp + ":" + serverPort;
 
         try {
-            socket = IO.socket("http://" + SERVER_IP + ":" + SERVER_PORT);
+            socket = IO.socket(url);
         } catch (URISyntaxException e) {
-            e.printStackTrace();
+            Log.e(TAG, "Invalid URI: " + url, e);
         }
 
         socket.on(Socket.EVENT_CONNECT, onConnect);
@@ -54,15 +51,15 @@ public class SocketClient {
             }
 
             socket.emit("register-device", pars);
-            Log.e(LOG_TAG_SOCKET, "Connected");
+            Log.e(TAG, "Connected");
         }
     };
 
     private Emitter.Listener onConnectionError = new Emitter.Listener() {
         @Override
         public void call(Object... args) {
-            Log.e(LOG_TAG_SOCKET, "Failure in connection");
-            Log.e(LOG_TAG_SOCKET, "Socket error: " + args[0].toString());
+            Log.e(TAG, "Failure in connection");
+            Log.e(TAG, "Socket error: " + args[0].toString());
         }
     };
 
@@ -70,14 +67,11 @@ public class SocketClient {
         return socket;
     }
 
-    public static SocketClient getInstance() {
-        return instance;
-    }
 
     public String getIP(){
-        return SERVER_IP;
+        return serverIp;
     }
     public String getPort(){
-        return SERVER_PORT;
+        return serverPort;
     }
 }
