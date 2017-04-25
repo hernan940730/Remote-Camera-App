@@ -3,9 +3,7 @@ package com.example.hernan940730.remotecamera;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.hardware.Camera;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.PowerManager;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -28,6 +26,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 
 import io.socket.client.Socket;
 import io.socket.emitter.Emitter;
@@ -35,9 +34,6 @@ import io.socket.emitter.Emitter;
 // Based on the official example from https://developer.android.com/guide/topics/media/camera.html
 
 public class RemoteCameraApi extends AppCompatActivity {
-
-    public static final int MEDIA_TYPE_IMAGE = 1;
-    private static final String PICTURE_FILENAME = "picture.jpg";
     private static final String TAG = "RemoteCameraApi";
     private Camera mCamera;
     private CameraPreview mPreview;
@@ -49,56 +45,10 @@ public class RemoteCameraApi extends AppCompatActivity {
     private Socket socket;
     private SocketClient connection;
 
-    /** Create a file Uri for saving an image or video */
-    private static Uri getOutputMediaFileUri(int type){
-        return Uri.fromFile(getOutputMediaFile(type));
-    }
-
-    /** Create a File for saving an image or video */
-    private static File getOutputMediaFile(int type){
-        // To be safe, you should check that the SDCard is mounted
-        // using Environment.getExternalStorageState() before doing this.
-
-        File mediaStorageDir = new File(Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_PICTURES), "MyCameraApp");
-        // This location works best if you want the created images to be shared
-        // between applications and persist after your app has been uninstalled.
-
-        // Create the storage directory if it does not exist
-        if (! mediaStorageDir.exists()){
-            if (! mediaStorageDir.mkdirs()){
-                Log.d("MyCameraApp", "failed to create directory");
-                return null;
-            }
-        }
-
-        // Create a media file name
-        File mediaFile;
-        if (type == MEDIA_TYPE_IMAGE){
-            mediaFile = new File(mediaStorageDir.getPath() + File.separator +
-                    PICTURE_FILENAME);
-        } else {
-            return null;
-        }
-
-        return mediaFile;
-    }
-
     private Camera.PictureCallback mPicture = new Camera.PictureCallback() {
 
         @Override
         public void onPictureTaken(byte[] data, Camera camera) {
-
-            File pictureFile = getOutputMediaFile(MEDIA_TYPE_IMAGE);
-            if (pictureFile == null){
-                Log.d(TAG, "Error creating media file, check storage permissions: ");
-                return;
-            }
-
-            try {
-                FileOutputStream fos = new FileOutputStream(pictureFile);
-                fos.write(data);
-                fos.close();
 
                 if(lastPictureRequest != null) {
                     JSONObject pars = new JSONObject();
@@ -108,18 +58,14 @@ public class RemoteCameraApi extends AppCompatActivity {
                         socket.emit("picture-available", pars);
                     } catch (JSONException e) {
                         Log.e(TAG, "JSONException while attempting to send image", e);
+                    } catch (UnsupportedEncodingException e) {
+                        Log.e(TAG, "UnsupportedEncodingException while attempting to send image", e);
                     }
                 }
                 lastPictureRequest = null;
 
-                Toast.makeText(RemoteCameraApi.this, "Image saved to " + pictureFile.getAbsolutePath(),
-                        Toast.LENGTH_LONG).show();
-                Log.d(TAG, "Saved image to " + pictureFile.getAbsolutePath());
-            } catch (FileNotFoundException e) {
-                Log.d(TAG, "File not found: " + e.getMessage());
-            } catch (IOException e) {
-                Log.d(TAG, "Error accessing file: " + e.getMessage());
-            }
+                Toast.makeText(RemoteCameraApi.this, "Picture taken", Toast.LENGTH_LONG).show();
+
 
             mCamera.startPreview();
         }
