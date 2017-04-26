@@ -1,5 +1,4 @@
 <resources>
-    <string name="app_name">Remote Camera App</string>
-    <string name="take_picture">Take pic!</string>
-    <string name="torch_mode">Torch Mode</string>
+    <string name="app_name">CameraTest</string>
+    <string name="title_activity_camera">CameraActivity</string>
 </resources>
