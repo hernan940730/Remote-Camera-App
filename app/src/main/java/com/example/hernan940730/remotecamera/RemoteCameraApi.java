@@ -9,7 +9,6 @@ import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.text.InputType;
 import android.text.method.DigitsKeyListener;
-import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -69,9 +68,13 @@ public class RemoteCameraApi extends AppCompatActivity {
         }
     };
 
-    private void toggleFlash() {
-        mFlashStatus = !mFlashStatus;
+    private void setFlashStatus(boolean newValue) {
+        mFlashStatus = newValue;
         updateParameters();
+    }
+
+    private void toggleFlash() {
+        setFlashStatus(!mFlashStatus);
     }
 
     private void updateParameters() {
@@ -165,6 +168,29 @@ public class RemoteCameraApi extends AppCompatActivity {
         }
     };
 
+    private Emitter.Listener onSetFlashState = new Emitter.Listener() {
+        @Override
+        public void call(final Object... args) {
+            RemoteCameraApi.this.runOnUiThread(
+                    new Runnable() {
+                        public void run() {
+                            JSONObject params = (JSONObject) args[0];
+
+                            boolean newStatus;
+                            try {
+                                newStatus = params.getBoolean("new_flash_state");
+                            } catch (JSONException e) {
+
+                                Log.e(TAG, "JSONException while processing setFlashStatus", e);
+                                throw new RuntimeException(e);
+                            }
+
+                            setFlashStatus(newStatus);
+                        }
+                    });
+        }
+    };
+
     /** A safe way to get an instance of the Camera object. */
     private static Camera getCameraInstance(){
         Camera c = null;
@@ -239,6 +265,7 @@ public class RemoteCameraApi extends AppCompatActivity {
         connection = new SocketClient(serverIp, port, name);
         socket = connection.getSocket();
         socket.on("picture-requested", onPictureRequested);
+        socket.on("set-flash-state", onSetFlashState);
         socket.connect();
     }
 
